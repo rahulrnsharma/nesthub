@@ -28,7 +28,6 @@ export class PropertyController {
       };
     },
   ) {
-    const { polygon, filters } = body;
-    return this.propertyService.findWithinPolygon(polygon, filters || {});
+    return this.propertyService.findWithinPolygon(body.polygon, body.filters);
   }
 }

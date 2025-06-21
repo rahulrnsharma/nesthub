@@ -32,12 +32,16 @@ export class PropertyRepository extends Repository<Property> {
   async findWithinPolygon(
     polygon: number[][],
     filters: { minPrice?: number; maxPrice?: number; bedrooms?: number; bathrooms?: number }
-  ): Promise<Property[]> {
+  ): Promise<{ total: number; matched: Property[]; fallback: Property[] }> {
+    if (!polygon || !Array.isArray(polygon) || polygon.length === 0) {
+      throw new Error('Polygon input is missing or invalid');
+    }
+  
     const polygonWKT = `POLYGON((${polygon.map(p => `${p[0]} ${p[1]}`).join(', ')}))`;
   
     const buildFilterSql = (startIndex: number) => {
-      const conditions = [];
-      const values = [];
+      const conditions: string[] = [];
+      const values: any[] = [];
   
       if (filters?.minPrice !== undefined) {
         conditions.push(`price >= $${startIndex + values.length}`);
@@ -62,8 +66,14 @@ export class PropertyRepository extends Repository<Property> {
       };
     };
   
+    const countResult = await this.dataSource.query(`
+      SELECT COUNT(*) FROM property
+    `);
+    const total = parseInt(countResult[0].count, 10);
+    
+  
     const polygonFilters = buildFilterSql(2);
-    const primaryResult = await this.dataSource.query(
+    const matched = await this.dataSource.query(
       `
       SELECT * FROM property
       WHERE ST_Contains(
@@ -75,10 +85,12 @@ export class PropertyRepository extends Repository<Property> {
       [polygonWKT, ...polygonFilters.values]
     );
   
-    if (primaryResult.length > 0) return primaryResult;
+    if (matched.length > 0) {
+      return { total, matched, fallback: [] };
+    }
   
     const radiusFilters = buildFilterSql(3);
-    return this.dataSource.query(
+    const fallback = await this.dataSource.query(
       `
       SELECT * FROM property
       WHERE ST_DWithin(
@@ -90,6 +102,9 @@ export class PropertyRepository extends Repository<Property> {
       `,
       [polygonWKT, 5000, ...radiusFilters.values]
     );
+  
+    return { total, matched, fallback };
   }
+  
   
 }
